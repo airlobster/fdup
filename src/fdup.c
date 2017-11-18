@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
+#include <fnmatch.h>
 #include "utils.h"
 #include "getoptex.h"
 #include "queue.h"
@@ -13,15 +14,36 @@
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef enum _fdup_flags {
-	FF_DUPSONLY=0x1
+	FF_DUPSONLY=0x1,
+	FF_NOEMPTY=0x2
 } fdup_flags;
 
 static unsigned long flags = 0;
+
+#define	SET_OPT(opt)	flags |= (opt)
+#define	IS_OPT(opt)	((flags & (opt))==(opt))
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 static unsigned long files_scanned = 0;
 static queue* visited = 0;
+static queue* ignore = 0;
+static int num_dirs = 0;
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+static int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx);
+static int pfn_printpoolentry(void* e, void* ctx);
+static int pfn_printpool(void* e, void* ctx);
+static unsigned long get_file_inode(const char* path);
+static unsigned long get_file_size(const char* path);
+static int pfn_findpool(void* e, void* ctx);
+static int condition_sameinode(void* e, void* ctx);
+static int condition_wildcard(void* e, void* ctx);
+static int checkfilebysize(const char* fullpath, void* ctx);
+static long checksum(const char* filename);
+static int condition_samechecksum(void* e, void* ctx);
+static int pfn_scanpool(void* e, void* ctx);
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -51,6 +73,10 @@ void usage(FILE* os) {
 		"Options:\n"
 		"\t-d|--directory <dir>\n"
 		"\t            Add a directory to the scanning list.\n"
+		"\t-i|--ignore <pattern>\n"
+		"\t            Add a wildcard pattern to the ignore list.\n"
+		"\t-e|--noempty\n"
+		"\t            Ignore empty files.\n"
 		"\t-l|--list\n"
 		"\t            Print only duplicated files as a flat list, while hiding the first file of each group.\n"
 		"\t            Using this mode as an input to a 'rm' command will remove only the duplicates, while\n"
@@ -65,7 +91,7 @@ void usage(FILE* os) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx) {
+static int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx) {
 	DIR* dp;
 	struct dirent* e;
 	struct stat st;
@@ -78,6 +104,9 @@ int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx) {
 
 	while( (e=readdir(dp)) ) {
 		snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, e->d_name);
+		// skip if in ignore list
+		if( queue_find(ignore, condition_wildcard, (void*)fullpath) )
+			continue;
 		lstat(fullpath, &st);
 		if( S_ISDIR(st.st_mode) ) {
 			if( strcmp(e->d_name, ".")==0 || strcmp(e->d_name, "..")==0 )
@@ -100,7 +129,7 @@ int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx) {
 static int pfn_printpoolentry(void* e, void* ctx) {
 	const char* path = (const char*)e;
 	int* index = (int*)ctx;
-	if( (flags & FF_DUPSONLY) == FF_DUPSONLY ) {
+	if( IS_OPT(FF_DUPSONLY) ) {
 		if( *index > 0 )
 			fprintf(stdout, "%s\n", path);
 	} else {
@@ -114,7 +143,7 @@ static int pfn_printpool(void* e, void* ctx) {
 	int* grpIndex = (int*)ctx;
 	int index = 0;
 	sizepool* sp = (sizepool*)e;
-	if( (flags & FF_DUPSONLY) != FF_DUPSONLY )
+	if( ! IS_OPT(FF_DUPSONLY) )
 		fprintf(stdout, "#%d\n", *grpIndex);
 	queue_enum(sp->q, pfn_printpoolentry, &index);
 	++*grpIndex;
@@ -143,7 +172,13 @@ static int pfn_findpool(void* e, void* ctx) {
 	return sp->size == size;
 }
 
-static int condition_isvisited(void* e, void* ctx) {
+static int condition_wildcard(void* e, void* ctx) {
+	const char* pattern = (const char*)e;
+	const char* path = (const char*)ctx;
+	return fnmatch(pattern, path, 0) == 0;
+}
+
+static int condition_sameinode(void* e, void* ctx) {
 	unsigned long id = (unsigned long)e;
 	unsigned long cmp = (unsigned long)ctx;
 	return id == cmp;
@@ -152,12 +187,15 @@ static int condition_isvisited(void* e, void* ctx) {
 static int checkfilebysize(const char* fullpath, void* ctx) {
 	// check if this file's inode is already known (visited)
 	unsigned long inode = get_file_inode(fullpath);
-	if( queue_find(visited, condition_isvisited, (void*)inode) ) {
+	if( queue_find(visited, condition_sameinode, (void*)inode) ) {
 		TRACE("File \"%s\" already visited", fullpath);
 		return 0;
 	}
 	queue* pools = (queue*)ctx;
 	unsigned long size = get_file_size(fullpath);
+	// ignore empty files if so requested
+	if( size == 0 && IS_OPT(FF_NOEMPTY) )
+		return 0;
 	sizepool* sp = queue_find(pools, pfn_findpool, (void*)size);
 	if( ! sp ) {
 		sp = create_pool(size);
@@ -191,7 +229,7 @@ static long checksum(const char* filename) {
 	return cs;
 }
 
-static int pfn_checksum(void* e, void* ctx) {
+static int condition_samechecksum(void* e, void* ctx) {
 	queue* q = (queue*)ctx;
 	const char* path = (const char*)e;
 	long cs = checksum(path);
@@ -206,7 +244,7 @@ static int pfn_checksum(void* e, void* ctx) {
 
 static int pfn_scanpool(void* e, void* ctx) {
 	sizepool* sp = (sizepool*)e;
-	queue_enum(sp->q, pfn_checksum, ctx);
+	queue_enum(sp->q, condition_samechecksum, ctx);
 	return 1;
 }
 
@@ -214,6 +252,8 @@ static int pfn_scanpool(void* e, void* ctx) {
 
 GETOPT_BEGIN(_options)
 	GETOPT_OPT('d',"directory",required_argument)
+	GETOPT_OPT('i',"ignore",required_argument)
+	GETOPT_OPT('e',"noempty",no_argument)
 	GETOPT_OPT('v',"verbose",no_argument)
 	GETOPT_OPT('l',"list",no_argument)
 	GETOPT_OPT('h',"help",no_argument)
@@ -222,14 +262,23 @@ GETOPT_END();
 static void cmdopt(int c, char* const arg, void* ctx) {
 	switch( c ) {
 		case 'd': {
+			++num_dirs;
 			if( scan(arg, checkfilebysize, ctx) < 0 ) {
 				fprintf(stderr, "Failed to open \"%s\"!\n", arg);
 				exit(1);
 			}
 			break;
 		}
+		case 'i': {
+			queue_pushtail(ignore, (void*)strdup(arg));
+			break;
+		}
+		case 'e': {
+			SET_OPT(FF_NOEMPTY);
+			break;
+		}
 		case 'l': {
-			flags |= FF_DUPSONLY;
+			SET_OPT(FF_DUPSONLY);
 			break;
 		}
 		case 'v': {
@@ -261,8 +310,11 @@ static int condition_single_element_pool(void* e, void* ctx) {
 int main(int argc, char* const* argv) {
 	queue* pools;
 	visited = queue_create(0, 0);
+	ignore = queue_create((dtor)free, 0);
 	pools = queue_create((dtor)destroy_pool, 0);
 	getopt_ex(argc, argv, _options, cmdopt, pools);
+	if( num_dirs == 0 )
+		scan(".", checkfilebysize, pools);
 	TRACE("#of files scanned: %lu", files_scanned);
 	// delete all pools with a single element
 	queue_delete_elements(pools, condition_single_element_pool, 0);
@@ -276,11 +328,12 @@ int main(int argc, char* const* argv) {
 		pools = newpools;
 	}
 	// print pool
-	int grpIndex = 0;
+	int grpIndex = 1;
 	if( ! queue_enum(pools, pfn_printpool, &grpIndex) )
 		fprintf(stderr, "No duplicates found.\n");
 	queue_destroy(pools);
 	queue_destroy(visited);
+	queue_destroy(ignore);
 	return 0;
 }
 
