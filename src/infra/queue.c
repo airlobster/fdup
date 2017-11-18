@@ -109,13 +109,16 @@ void* queue_peektail(queue* q) {
 	return q->last->v;
 }
 
-void queue_enum(queue* q, int(*f)(void* e, void* ctx), void* ctx) {
+int queue_enum(queue* q, int(*f)(void* e, void* ctx), void* ctx) {
+	int n = 0;
 	queue_element* e = q->first;
 	while( e ) {
+		++n;
 		if( ! f(e->v, ctx) )
 			break;
 		e = e->next;
 	}
+	return n;
 }
 
 void queue_select(queue* q, int(*condition)(void* e, void* ctx), void* ctx, queue** pqueue) {

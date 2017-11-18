@@ -28,7 +28,7 @@ void queue_pushtail(queue* q, void* e);
 void* queue_poptail(queue* q);
 void* queue_peertail(queue* q);
 
-void queue_enum(queue* q, int(*f)(void* e, void* ctx), void* ctx);
+int queue_enum(queue* q, int(*f)(void* e, void* ctx), void* ctx);
 void queue_select(queue* q, int(*condition)(void* e, void* ctx), void* ctx, queue** pqueue);
 void* queue_find(queue* q, int(*condition)(void* e, void* ctx), void* ctx);
 int queue_delete_elements(queue* q, int(*condition)(void* e, void* ctx), void* ctx);

@@ -44,6 +44,27 @@ void destroy_pool(sizepool* sp) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
+void usage(FILE* os) {
+	static const char* txt =
+		"Usage:\n"
+		"\tfdup {options} -d <dir>...\n"
+		"Options:\n"
+		"\t-d|--directory <dir>\n"
+		"\t            Add a directory to the scanning list.\n"
+		"\t-l|--list\n"
+		"\t            Print only duplicated files as a flat list, while hiding the first file of each group.\n"
+		"\t            Using this mode as an input to a 'rm' command will remove only the duplicates, while\n"
+		"\t            leaving every first copy untouched.\n"
+		"\t-v|--verbose\n"
+		"\t            Turn verbose mode on.\n"
+		"\t-h|--help\n"
+		"\t            Print this help text.\n"
+		;
+	fputs(txt, os);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
 int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx) {
 	DIR* dp;
 	struct dirent* e;
@@ -195,6 +216,7 @@ GETOPT_BEGIN(_options)
 	GETOPT_OPT('d',"directory",required_argument)
 	GETOPT_OPT('v',"verbose",no_argument)
 	GETOPT_OPT('l',"list",no_argument)
+	GETOPT_OPT('h',"help",no_argument)
 GETOPT_END();
 
 static void cmdopt(int c, char* const arg, void* ctx) {
@@ -212,6 +234,18 @@ static void cmdopt(int c, char* const arg, void* ctx) {
 		}
 		case 'v': {
 			set_verbose(1);
+			break;
+		}
+		case 'h': {
+			fprintf(stdout, "fdup - Finding duplicate files.\n");
+			usage(stdout);
+			exit(0);
+			break;
+		}
+		default: {
+			fprintf(stderr, "Invalid option!\n");
+			usage(stderr);
+			exit(1);
 			break;
 		}
 	}
@@ -243,7 +277,8 @@ int main(int argc, char* const* argv) {
 	}
 	// print pool
 	int grpIndex = 0;
-	queue_enum(pools, pfn_printpool, &grpIndex);
+	if( ! queue_enum(pools, pfn_printpool, &grpIndex) )
+		fprintf(stderr, "No duplicates found.\n");
 	queue_destroy(pools);
 	queue_destroy(visited);
 	return 0;
