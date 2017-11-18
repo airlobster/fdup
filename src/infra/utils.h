@@ -5,6 +5,11 @@
 
 #include <stdio.h>
 
+
+typedef void(*dtor)(void* e);
+typedef void*(*clone)(void* e);
+
+
 void set_verbose(int v);
 int get_verbose();
 

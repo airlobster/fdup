@@ -5,9 +5,6 @@
 
 struct _queue_element;
 
-typedef void(*dtor)(void* e);
-typedef void*(*clone)(void* e);
-
 typedef struct _queue {
 	struct _queue_element* first;
 	struct _queue_element* last;
