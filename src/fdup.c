@@ -213,6 +213,7 @@ static long checksum(const char* filename) {
 	static const size_t bufsize = 1024 * 128;
 	FILE* f = 0;
 	long cs = 0;
+	int i;
 	if( ! (f=fopen(filename,"rb")) )
 		return 0;
 	char* buf = (char*)malloc(bufsize);
@@ -221,7 +222,7 @@ static long checksum(const char* filename) {
 		if( cb <= 0 )
 			break;
 		const char* p = buf;
-		for(int i=1; i <= cb; ++i)
+		for(i=1; i <= cb; ++i)
 			cs ^= *p++ * i;
 	}
 	free(buf);
