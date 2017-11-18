@@ -22,6 +22,8 @@ typedef struct _set {
 	unsigned long opt;
 } set;
 
+static int set_find_element(set* sp, void* e, set_element** ret);
+
 
 set* set_create(hash_func f, dtor fd, int max_buckets) {
 	int i;
@@ -52,7 +54,7 @@ void set_destroy(set* sp) {
 }
 
 void set_add(set* sp, void* e) {
-	if( set_find(sp, e) )
+	if( set_exists(sp, e) )
 		return; // already exists
 	long hash = sp->fhash(e);
 	set_element* enew = (set_element*)malloc(sizeof(set_element));
@@ -67,8 +69,8 @@ void set_add(set* sp, void* e) {
 }
 
 void set_remove(set* sp, void* e) {
-	set_element* se = set_find(sp, e);
-	if( ! se )
+	set_element* se = 0;
+	if( ! set_find_element(sp, e, &se) )
 		return;
 	if( se->prev )
 		se->prev->next = se->next;
@@ -81,15 +83,22 @@ void set_remove(set* sp, void* e) {
 	free(se);
 }
 
-void* set_find(set* sp, void* e) {
+static int set_find_element(set* sp, void* e, set_element** ret) {
 	int hash = sp->fhash(e);
 	set_element* p = sp->buckets[hash % sp->num_buckets];
 	while( p ) {
-		if( hash == p->hash )
-			return p->v;
+		if( hash == p->hash ) {
+			if( ret )
+				*ret = p;
+			return 1;
+		}
 		p = p->next;
 	}
 	return 0;
+}
+
+int set_exists(set* sp, void* e) {
+	return set_find_element(sp, e, 0);
 }
 
 int set_enum(set* sp, int(*f)(void* e, void* ctx), void* ctx) {

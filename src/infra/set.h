@@ -12,7 +12,7 @@ set* set_create(hash_func f, dtor fd, int max_buckets);
 void set_destroy(set* sp);
 void set_add(set* sp, void* e);
 void set_remove(set* sp, void* e);
-void* set_find(set* sp, void* e);
+int set_exists(set* sp, void* e);
 int set_enum(set* sp, int(*f)(void* e, void* ctx), void* ctx);
 
 #endif
