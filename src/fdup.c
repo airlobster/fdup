@@ -12,7 +12,16 @@
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-unsigned long files_scanned = 0;
+typedef enum _fdup_flags {
+	FF_DUPSONLY=0x1
+} fdup_flags;
+
+static unsigned long flags = 0;
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+static unsigned long files_scanned = 0;
+static queue* visited = 0;
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -35,7 +44,7 @@ void destroy_pool(sizepool* sp) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-int scan(const char* dir, int(*f)(const struct dirent* e, const char* fullpath, void* ctx), void* ctx) {
+int scan(const char* dir, int(*f)(const char* fullpath, void* ctx), void* ctx) {
 	DIR* dp;
 	struct dirent* e;
 	struct stat st;
@@ -43,10 +52,8 @@ int scan(const char* dir, int(*f)(const struct dirent* e, const char* fullpath, 
 	int r = 0;
 
 	dp = opendir(dir);
-	if( ! dp ) {
-		fprintf(stderr, "Failed to open directory \"%s\"!\n", dir);
+	if( ! dp )
 		return -1;
-	}
 
 	while( (e=readdir(dp)) ) {
 		snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, e->d_name);
@@ -57,7 +64,7 @@ int scan(const char* dir, int(*f)(const struct dirent* e, const char* fullpath, 
 			if( (r=scan(fullpath, f, ctx)) )
 				break;
 		} else {
-			if( (r=f(e, fullpath, ctx)) )
+			if( (r=f(fullpath, ctx)) )
 				break;
 		}
 	}
@@ -71,19 +78,36 @@ int scan(const char* dir, int(*f)(const struct dirent* e, const char* fullpath, 
 
 static int pfn_printpoolentry(void* e, void* ctx) {
 	const char* path = (const char*)e;
-	fprintf(stdout, "\t%s\n", path);
+	int* index = (int*)ctx;
+	if( (flags & FF_DUPSONLY) == FF_DUPSONLY ) {
+		if( *index > 0 )
+			fprintf(stdout, "%s\n", path);
+	} else {
+		fprintf(stdout, "\t%s\n", path);
+	}
+	++*index;
 	return 1;
 }
 
 static int pfn_printpool(void* e, void* ctx) {
 	int* grpIndex = (int*)ctx;
+	int index = 0;
 	sizepool* sp = (sizepool*)e;
-	fprintf(stdout, "#%d\n", ++*grpIndex);
-	queue_enum(sp->q, pfn_printpoolentry, 0);
+	if( (flags & FF_DUPSONLY) != FF_DUPSONLY )
+		fprintf(stdout, "#%d\n", *grpIndex);
+	queue_enum(sp->q, pfn_printpoolentry, &index);
+	++*grpIndex;
 	return 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
+
+static unsigned long get_file_inode(const char* path) {
+	struct stat st;
+	if( stat(path, &st) == 0 )
+		return st.st_ino;
+	return 0;
+}
 
 static unsigned long get_file_size(const char* path) {
 	struct stat st;
@@ -98,7 +122,19 @@ static int pfn_findpool(void* e, void* ctx) {
 	return sp->size == size;
 }
 
-static int checkfilebysize(const struct dirent* e, const char* fullpath, void* ctx) {
+static int condition_isvisited(void* e, void* ctx) {
+	unsigned long id = (unsigned long)e;
+	unsigned long cmp = (unsigned long)ctx;
+	return id == cmp;
+}
+
+static int checkfilebysize(const char* fullpath, void* ctx) {
+	// check if this file's inode is already known (visited)
+	unsigned long inode = get_file_inode(fullpath);
+	if( queue_find(visited, condition_isvisited, (void*)inode) ) {
+		TRACE("File \"%s\" already visited", fullpath);
+		return 0;
+	}
 	queue* pools = (queue*)ctx;
 	unsigned long size = get_file_size(fullpath);
 	sizepool* sp = queue_find(pools, pfn_findpool, (void*)size);
@@ -107,6 +143,7 @@ static int checkfilebysize(const struct dirent* e, const char* fullpath, void* c
 		queue_pushtail(pools, sp);
 	}
 	queue_pushtail(sp->q, strdup(fullpath));
+	queue_pushtail(visited, (void*)inode); // register this inode
 	++files_scanned;
 	return 0;
 }
@@ -157,12 +194,20 @@ static int pfn_scanpool(void* e, void* ctx) {
 GETOPT_BEGIN(_options)
 	GETOPT_OPT('d',"directory",required_argument)
 	GETOPT_OPT('v',"verbose",no_argument)
+	GETOPT_OPT('l',"list",no_argument)
 GETOPT_END();
 
 static void cmdopt(int c, char* const arg, void* ctx) {
 	switch( c ) {
 		case 'd': {
-			scan(arg, checkfilebysize, ctx);
+			if( scan(arg, checkfilebysize, ctx) < 0 ) {
+				fprintf(stderr, "Failed to open \"%s\"!\n", arg);
+				exit(1);
+			}
+			break;
+		}
+		case 'l': {
+			flags |= FF_DUPSONLY;
 			break;
 		}
 		case 'v': {
@@ -181,6 +226,7 @@ static int condition_single_element_pool(void* e, void* ctx) {
 
 int main(int argc, char* const* argv) {
 	queue* pools;
+	visited = queue_create(0, 0);
 	pools = queue_create((dtor)destroy_pool, 0);
 	getopt_ex(argc, argv, _options, cmdopt, pools);
 	TRACE("#of files scanned: %lu", files_scanned);
@@ -199,6 +245,7 @@ int main(int argc, char* const* argv) {
 	int grpIndex = 0;
 	queue_enum(pools, pfn_printpool, &grpIndex);
 	queue_destroy(pools);
+	queue_destroy(visited);
 	return 0;
 }
 
