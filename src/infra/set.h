@@ -1,8 +1,9 @@
 // set.h
 
 #ifndef __SET_H_
-#define	__SET_H_
+#define __SET_H_
 
+#include <stdio.h>
 #include "type.h"
 
 typedef struct _set set;
@@ -13,6 +14,7 @@ void set_add(set* sp, void* e);
 void set_remove(set* sp, void* e);
 int set_exists(set* sp, void* e);
 int set_foreach(set* sp, int(*f)(void* e, void* ctx), void* ctx);
+void set_print_stats(const set* sp, FILE* os);
 
 #endif
 

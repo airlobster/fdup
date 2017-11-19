@@ -1,5 +1,6 @@
 // set.c
 
+#include <limits.h>
 #include <stdlib.h>
 #include "set.h"
 
@@ -110,4 +111,29 @@ int set_foreach(set* sp, int(*f)(void* e, void* ctx), void* ctx) {
 	}
 	return n;
 }
+
+void set_print_stats(const set* sp, FILE* os) {
+	int sum = 0;
+	int min = INT_MAX;
+	int max = INT_MIN;
+	int noneempty = 0;
+	int i;
+	for(i=0; i < sp->num_buckets; ++i) {
+		int n = 0;
+		const set_element* e = sp->buckets[i];
+		while( e ) {
+			++n;
+			e = e->next;
+		}
+		sum += n;
+		if( n < min )
+			min = n;
+		if( n > max )
+			max = n;
+		if( n )
+			++noneempty;
+	}
+	fprintf(os, "total=%d, min=%d, max=%d, none-empty=%d%%\n", sum, min, max, 100*noneempty/MAX_BUCKETS);
+}
+
 
