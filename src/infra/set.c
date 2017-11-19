@@ -56,7 +56,6 @@ void set_destroy(set* sp) {
 void set_add(set* sp, void* e) {
 	if( set_exists(sp, e) )
 		return; // already exists
-	long hash = sp->fhash(e);
 	set_element* enew = (set_element*)malloc(sizeof(set_element));
 	enew->v = e;
 	enew->hash = sp->fhash(e);
@@ -75,7 +74,7 @@ void set_remove(set* sp, void* e) {
 	if( se->prev )
 		se->prev->next = se->next;
 	else
-		sp->buckets[sp->fhash(e) % sp->num_buckets] = se->next;
+		sp->buckets[se->hash % sp->num_buckets] = se->next;
 	if( se->next )
 		se->next->prev = se->prev;
 	if( sp->fd )
