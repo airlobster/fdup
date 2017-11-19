@@ -82,7 +82,7 @@ void set_remove(set* sp, void* e) {
 static int set_find_element(set* sp, void* e, set_element** ret) {
 	set_element* p = sp->buckets[sp->t.h(e) % sp->num_buckets];
 	while( p ) {
-		int equal = sp->t.c ? sp->t.c(e, p->v) : e == p->v;
+		int equal = sp->t.c ? sp->t.c(e, p->v)==0 : e == p->v;
 		if( equal ) {
 			if( ret )
 				*ret = p;
