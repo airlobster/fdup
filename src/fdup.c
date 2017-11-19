@@ -338,7 +338,7 @@ int main(int argc, char* const* argv) {
 		queue_destroy(pools);
 		pools = newpools;
 	}
-#if VISITED_STATISTICS
+#if 0
 	if( get_verbose() ) {
 		fprintf(stderr, "visited set distribution: ");
 		set_print_stats(visited, stderr);
