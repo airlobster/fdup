@@ -4,37 +4,34 @@
 #include "set.h"
 
 
-#define	MAX_BUCKETS	(200)
+#define	MAX_BUCKETS	(512)
 
 
 typedef struct _set_element {
 	struct _set_element* next;
 	struct _set_element* prev;
 	void* v;
-	long hash;
 } set_element;
 
 typedef struct _set {
 	set_element** buckets;
 	int num_buckets;
-	hash_func fhash;
-	dtor fd;
+	type t;
 	unsigned long opt;
 } set;
 
 static int set_find_element(set* sp, void* e, set_element** ret);
 
 
-set* set_create(hash_func f, dtor fd, int max_buckets) {
+set* set_create(const type* t) {
 	int i;
 	set* sp = (set*)malloc(sizeof(set));
-	sp->fhash = f;
-	sp->fd = fd;
+	sp->t = *t;
 	sp->opt = 0;
-	sp->num_buckets = max_buckets ? max_buckets : MAX_BUCKETS;
+	sp->num_buckets = MAX_BUCKETS;
 	sp->buckets = (set_element**)malloc(sizeof(set_element*) * sp->num_buckets);
-	for(i=0; i < sp->num_buckets; ++i)
-		sp->buckets[i] = 0;
+	for(i=0; i < sp->num_buckets; sp->buckets[i++] = 0)
+		;
 	return sp;
 }
 
@@ -43,8 +40,8 @@ void set_destroy(set* sp) {
 	for(i=0; i < sp->num_buckets; ++i) {
 		while( sp->buckets[i] ) {
 			set_element* next = sp->buckets[i]->next;
-			if( sp->fd )
-				sp->fd(sp->buckets[i]->v);
+			if( sp->t.dtor )
+				sp->t.dtor(sp->buckets[i]->v);
 			free(sp->buckets[i]);
 			sp->buckets[i] = next;
 		}
@@ -58,9 +55,8 @@ void set_add(set* sp, void* e) {
 		return; // already exists
 	set_element* enew = (set_element*)malloc(sizeof(set_element));
 	enew->v = e;
-	enew->hash = sp->fhash(e);
 	enew->prev = 0;
-	int bucket = enew->hash % sp->num_buckets;
+	int bucket = sp->t.h(e) % sp->num_buckets;
 	enew->next = sp->buckets[bucket];
 	if( enew->next )
 		enew->next->prev = enew;
@@ -74,19 +70,19 @@ void set_remove(set* sp, void* e) {
 	if( se->prev )
 		se->prev->next = se->next;
 	else
-		sp->buckets[se->hash % sp->num_buckets] = se->next;
+		sp->buckets[sp->t.h(se->v) % sp->num_buckets] = se->next;
 	if( se->next )
 		se->next->prev = se->prev;
-	if( sp->fd )
-		sp->fd(se->v);
+	if( sp->t.dtor )
+		sp->t.dtor(se->v);
 	free(se);
 }
 
 static int set_find_element(set* sp, void* e, set_element** ret) {
-	int hash = sp->fhash(e);
-	set_element* p = sp->buckets[hash % sp->num_buckets];
+	set_element* p = sp->buckets[sp->t.h(e) % sp->num_buckets];
 	while( p ) {
-		if( hash == p->hash ) {
+		int equal = sp->t.c ? sp->t.c(e, p->v) : e == p->v;
+		if( equal ) {
 			if( ret )
 				*ret = p;
 			return 1;
@@ -100,7 +96,7 @@ int set_exists(set* sp, void* e) {
 	return set_find_element(sp, e, 0);
 }
 
-int set_enum(set* sp, int(*f)(void* e, void* ctx), void* ctx) {
+int set_foreach(set* sp, int(*f)(void* e, void* ctx), void* ctx) {
 	int n = 0;
 	int i = 0;
 	for(i=0; i < sp->num_buckets; ++i) {

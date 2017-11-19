@@ -10,6 +10,8 @@
 #include "utils.h"
 #include "getoptex.h"
 #include "queue.h"
+#include "type.h"
+#include "set.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -26,7 +28,7 @@ static unsigned long flags = 0;
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 static unsigned long files_scanned = 0;
-static queue* visited = 0;
+static set* visited = 0;
 static queue* ignore = 0;
 static int num_dirs = 0;
 
@@ -44,6 +46,14 @@ static int checkfilebysize(const char* fullpath, void* ctx);
 static long checksum(const char* filename);
 static int condition_samechecksum(void* e, void* ctx);
 static int pfn_scanpool(void* e, void* ctx);
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// INODE TYPE
+
+static long inode_hash(void* e) {
+	return (long)e;
+}
+static const type tInode = { 0, inode_hash, 0 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -185,9 +195,10 @@ static int condition_sameinode(void* e, void* ctx) {
 }
 
 static int checkfilebysize(const char* fullpath, void* ctx) {
+	++files_scanned;
 	// check if this file's inode is already known (visited)
 	unsigned long inode = get_file_inode(fullpath);
-	if( queue_find(visited, condition_sameinode, (void*)inode) ) {
+	if( set_exists(visited, (void*)inode) ) {
 		TRACE("File \"%s\" already visited", fullpath);
 		return 0;
 	}
@@ -202,8 +213,7 @@ static int checkfilebysize(const char* fullpath, void* ctx) {
 		queue_pushtail(pools, sp);
 	}
 	queue_pushtail(sp->q, strdup(fullpath));
-	queue_pushtail(visited, (void*)inode); // register this inode
-	++files_scanned;
+	set_add(visited, (void*)inode); // register this inode
 	return 0;
 }
 
@@ -310,7 +320,7 @@ static int condition_single_element_pool(void* e, void* ctx) {
 
 int main(int argc, char* const* argv) {
 	queue* pools;
-	visited = queue_create(0, 0);
+	visited = set_create(&tInode);
 	ignore = queue_create((dtor)free, 0);
 	pools = queue_create((dtor)destroy_pool, 0);
 	getopt_ex(argc, argv, _options, cmdopt, pools);
@@ -333,7 +343,7 @@ int main(int argc, char* const* argv) {
 	if( ! queue_enum(pools, pfn_printpool, &grpIndex) )
 		fprintf(stderr, "No duplicates found.\n");
 	queue_destroy(pools);
-	queue_destroy(visited);
+	set_destroy(visited);
 	queue_destroy(ignore);
 	return 0;
 }
